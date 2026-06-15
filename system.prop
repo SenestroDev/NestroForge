@@ -1,0 +1,35 @@
+# system.prop - loaded as system properties via resetprop at boot
+# Format: key=value
+# Magisk applies these early at boot before most services start,
+# making this the right place for props that must be set before
+# the Bluetooth stack initializes.
+
+# ---------------------------------------------------------------
+# Display / Input
+# ---------------------------------------------------------------
+
+# Mark device as tablet so Android uses tablet-style UI layouts.
+ro.build.characteristics=tablet
+
+# Always show the hardware pointer/cursor on screen.
+# Required for BT mice to display a visible cursor.
+persist.sys.pointer.show=1
+
+# ---------------------------------------------------------------
+# Bluetooth GATT fixes (Android 13 BLE HID disconnect bug)
+# ---------------------------------------------------------------
+
+# Disable GATT robust caching.
+# Android 13 introduced strict GAP service validation that rejects
+# BLE HID devices (mice, keyboards) with non-standard GATT service
+# maps. This causes "No active GAP service found" disconnects within
+# seconds of pairing. Disabling robust caching restores Android 12
+# behavior and allows these devices to stay connected.
+persist.bluetooth.gatt.enable_robust_caching=false
+
+# Disable Enhanced ATT (eATT) bearer.
+# Android 13 negotiates eATT on BT5.x connections by default.
+# Devices advertising BT5.2 but lacking full eATT support fail
+# the negotiation silently and disconnect. Classic ATT bearer
+# (this setting) is universally supported by all BLE HID firmware.
+persist.bluetooth.gatt.eatt.enabled=false

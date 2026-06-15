@@ -1,0 +1,4 @@
+# sepolicy.rule - additional SELinux policy rules
+# Each line is treated as a policy statement
+# Example:
+# allow untrusted_app default_prop:property_service set
