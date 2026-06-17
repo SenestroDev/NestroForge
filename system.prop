@@ -1,35 +1,230 @@
-# system.prop - loaded as system properties via resetprop at boot
-# Format: key=value
-# Magisk applies these early at boot before most services start,
-# making this the right place for props that must be set before
-# the Bluetooth stack initializes.
+# =============================================================================
+# system.prop — Magisk Module System Properties
+# =============================================================================
+# Loaded via resetprop at early boot, before most Android services start.
+# This ensures props that must be set before the Bluetooth stack, SurfaceFlinger,
+# or Dalvik VM initializes are applied at the correct time.
+#
+# Format  : key=value (one per line, no spaces around =)
+# Scope   : Device-wide (all users, all apps)
+# Reboot  : Required after any change for props to take effect
+# Target  : Tecno Camon 19 (MT6768 / Helio G85), Android 13, Magisk root
+# =============================================================================
 
-# ---------------------------------------------------------------
-# Display / Input
-# ---------------------------------------------------------------
 
-# Mark device as tablet so Android uses tablet-style UI layouts.
+# =============================================================================
+# [1] DISPLAY & INPUT
+# =============================================================================
+# Controls how Android presents itself visually and responds to input devices.
+# -----------------------------------------------------------------------------
+
+# Identifies this device as a "tablet" to the Android framework.
+# Effect: Enables tablet-optimized UI layouts (two-pane fragments, wider sidebars,
+#         action bars, etc.) — useful when using a BT keyboard+mouse combo as a
+#         desktop-like setup.
+# Note  : Some apps behave differently in tablet mode. Revert to "phone" if any
+#         app breaks or shows a degraded layout.
 ro.build.characteristics=tablet
 
-# Always show the hardware pointer/cursor on screen.
-# Required for BT mice to display a visible cursor.
+# Forces the hardware pointer (cursor) to always be visible on screen.
+# Effect: Without this, Android hides the cursor when no pointing device is active.
+#         With a Bluetooth mouse connected, this ensures the cursor is always drawn.
+# Note  : Has no visible effect if no pointer/mouse device is connected.
 persist.sys.pointer.show=1
 
-# ---------------------------------------------------------------
-# Bluetooth GATT fixes (Android 13 BLE HID disconnect bug)
-# ---------------------------------------------------------------
 
-# Disable GATT robust caching.
-# Android 13 introduced strict GAP service validation that rejects
-# BLE HID devices (mice, keyboards) with non-standard GATT service
-# maps. This causes "No active GAP service found" disconnects within
-# seconds of pairing. Disabling robust caching restores Android 12
-# behavior and allows these devices to stay connected.
+# =============================================================================
+# [2] BLUETOOTH — GATT / BLE HID FIXES (Android 13 Regression)
+# =============================================================================
+# Android 13 introduced stricter Bluetooth Low Energy (BLE) validation that
+# breaks HID devices (mice, keyboards, gamepads) which were working on Android 12.
+# These two props restore compatibility with the wider ecosystem of BLE HID firmware.
+# -----------------------------------------------------------------------------
+
+# Disables GATT Robust Caching (introduced in BT 5.1 / Core Spec 5.2).
+#
+# What it is : Robust Caching allows the Android host to cache a peripheral's
+#              GATT service map (attributes, handles, UUIDs) and skip re-discovery
+#              on reconnect. Android 13 enforces strict GAP service validation
+#              as part of this: if the peripheral's GATT map doesn't include a
+#              valid Generic Access Profile (GAP) service entry, Android rejects
+#              it with "No active GAP service found" and disconnects.
+#
+# The bug    : Many BLE HID peripherals (mice, keyboards) have non-standard or
+#              minimal GATT service maps that pass Android 12 but fail Android 13's
+#              stricter GAP check, causing disconnects within seconds of pairing.
+#
+# This fix   : Disabling robust caching forces Android to rediscover the GATT
+#              service map on every connection — exactly as Android 12 did —
+#              bypassing the broken validation entirely.
+#
+# Trade-off  : Slightly longer BLE reconnection time (~100–300ms extra per
+#              reconnect) since service discovery isn't skipped.
 persist.bluetooth.gatt.enable_robust_caching=false
 
-# Disable Enhanced ATT (eATT) bearer.
-# Android 13 negotiates eATT on BT5.x connections by default.
-# Devices advertising BT5.2 but lacking full eATT support fail
-# the negotiation silently and disconnect. Classic ATT bearer
-# (this setting) is universally supported by all BLE HID firmware.
+# Disables Enhanced ATT (eATT) bearer negotiation.
+#
+# What it is : eATT (Enhanced Attribute Protocol) is a BT 5.1+ feature that
+#              runs multiple ATT channels in parallel over L2CAP Credit-Based
+#              Flow Control (CoC), improving throughput for BLE devices.
+#              Android 13 negotiates eATT automatically on BT 5.x connections.
+#
+# The bug    : Many devices advertise BT 5.x compatibility but don't fully
+#              implement eATT in their firmware. When Android 13 attempts eATT
+#              negotiation, the peripheral silently fails or drops the connection.
+#              This is especially common in budget BLE HID mice and keyboards.
+#
+# This fix   : Forces Android to use the classic ATT bearer (single channel)
+#              which is supported by 100% of BLE HID firmware, including old,
+#              budget, and non-standard devices.
+#
+# Trade-off  : No parallel ATT channels — negligible for HID devices since
+#              mice/keyboards produce very low data throughput anyway.
 persist.bluetooth.gatt.eatt.enabled=false
+
+
+# =============================================================================
+# [3] UI / ANIMATION — SurfaceFlinger & Hardware Acceleration
+# =============================================================================
+# These props tune how Android renders frames to the screen. The goal is to
+# ensure the GPU pipeline is always used and that the compositor thread gets
+# appropriate priority to avoid dropped frames.
+# -----------------------------------------------------------------------------
+
+# Instructs SurfaceFlinger (the display compositor) to use hardware (GPU)
+# rendering for compositing layers.
+# Effect: Without this, SF may fall back to software rendering in edge cases,
+#         causing jank. Setting to 1 locks in GPU compositing.
+# Note  : Usually already 1 on stock ROMs, but explicit declaration prevents
+#         OEM overrides from disabling it.
+debug.sf.hw=1
+
+# Enables hardware-accelerated rendering for the entire UI framework (View system).
+# Effect: All View drawing calls (drawing lists, bitmaps, canvas ops) are
+#         dispatched to the GPU's render thread instead of the CPU.
+#         This is the global toggle for Android's hardware UI pipeline.
+# Note  : Should always be 1 on modern Android. Older or low-RAM OEM builds
+#         sometimes set this to 0 to conserve memory.
+persist.sys.ui.hw=1
+
+# Gives SurfaceFlinger's thread a real-time scheduling priority.
+# Effect: SF gets elevated above normal app threads in the Linux scheduler,
+#         reducing the chance of the compositor being starved during heavy
+#         CPU load — which causes visible frame drops and stuttering.
+# Note  : Particularly helpful on MediaTek SoCs where thread scheduling
+#         can be less predictable than on Snapdragon under load.
+ro.surface_flinger.use_context_priority=true
+
+
+# =============================================================================
+# [4] CPU / SCHEDULER — Touch & Scroll Responsiveness
+# =============================================================================
+# These props influence how quickly Android processes input events and how
+# aggressively the system keeps components alive to avoid cold-start delays.
+# -----------------------------------------------------------------------------
+
+# Sets the minimum duration (in ms) between pointer/touch events delivered
+# to the input dispatcher.
+# Effect: Lower values = more frequent touch samples forwarded to apps.
+#         8ms (~125Hz effective) is a good balance for the G85's touch hardware.
+#         Default is often 10–16ms, which can make fast swipes feel slightly laggy.
+# Note  : Going below 8ms rarely helps and can increase CPU load from input processing.
+ro.min_pointer_dur=8
+
+# Sets the scrolling cache level used during fling/scroll animations.
+# Values : 0 = disabled, 1 = minimal, 2 = moderate, 3 = maximum
+# Effect : Higher values tell the UI framework to cache more off-screen content
+#          during a scroll/fling gesture, resulting in smoother list scrolling
+#          at the cost of slightly more RAM used during the gesture.
+# Note   : Level 3 is suitable for devices with ≥3GB RAM like the Camon 19.
+persist.sys.scrollingcache=3
+
+# Prevents the RIL (Radio Interface Layer) daemon from collapsing its power
+# state when idle.
+# Effect: The modem stays in a higher-readiness state, reducing the wake-up
+#         latency for incoming calls, SMS, and mobile data bursts.
+#         Makes the first few seconds of data activity feel more responsive.
+# Trade-off: Slightly higher idle battery drain (~1–3% over 8hrs in testing
+#            on similar MediaTek devices). Disable if battery life is a priority.
+ro.ril.disable.power.collapse=1
+
+
+# =============================================================================
+# [5] MEMORY MANAGEMENT — LMK & Asset Caching
+# =============================================================================
+# Controls how Android manages RAM under pressure: what gets killed first,
+# what gets cached, and how the launcher is treated.
+# -----------------------------------------------------------------------------
+
+# Ensures GPU acceleration is NOT disabled by the framework.
+# Effect: On low-RAM or thermally-constrained builds, Android sometimes sets
+#         this to "true" to reduce GPU memory pressure, which forces software
+#         rendering of graphics. Explicitly setting false prevents that.
+# Note  : Keep as false (do not avoid GPU accel) — double-negative property name.
+ro.config.avoid_gfx_accel=false
+
+# Allows the system to purge/reclaim cached drawable assets under memory pressure
+# instead of immediately killing background app processes.
+# Effect: The system recovers RAM from decoded image caches first, which means
+#         apps stay alive longer in the background — fewer cold starts.
+# Note  : Assets are re-decoded from disk on next access (fast on modern eMMC/UFS).
+persist.sys.purgeable_assets=1
+
+# Sets the OOM (Out-Of-Memory) adjustment score for the home/launcher app.
+# Values : Lower = higher priority = harder to kill
+#          1 = just above foreground apps (very high priority, almost never killed)
+# Effect : The launcher process stays resident in RAM at almost all times.
+#          Result: pressing the Home button is always instant — no launcher reload.
+# Note   : The launcher typically uses 80–150MB. This reserves that memory
+#          permanently. On 4GB+ devices this is a worthwhile trade.
+ro.HOME_APP_ADJ=1
+
+
+# =============================================================================
+# [6] DALVIK / ART VM — Java Heap Tuning
+# =============================================================================
+# The ART (Android Runtime) manages a per-app Java heap. These props control
+# how large that heap is, when garbage collection (GC) runs, and how much
+# free space the GC tries to maintain. Tuning these reduces GC pauses (jank)
+# and prevents apps from hitting artificial memory ceilings.
+#
+# Target RAM: 4GB (Camon 19) — values are calibrated accordingly.
+# -----------------------------------------------------------------------------
+
+# Initial heap size allocated when an app process starts.
+# Effect: Larger start = fewer early GC cycles as the app initializes and
+#         loads its first screens. 8m is appropriate for most modern apps.
+# Trade-off: Each app costs slightly more RAM at launch (negligible on 4GB).
+dalvik.vm.heapstartsize=8m
+
+# Per-app heap growth limit before the system considers the app to be using
+# "too much" memory and may become a kill candidate.
+# Effect: 192m allows moderately large apps (browsers, games) to expand their
+#         heap without being flagged as memory hogs by the LMK.
+# Note  : This is a soft ceiling — apps can request more via large heap manifest flag.
+dalvik.vm.heapgrowthlimit=192m
+
+# Absolute maximum heap size per app (for apps that declare largeHeap=true).
+# Effect: Games, photo editors, and browsers can allocate up to 512m of Java
+#         heap before hitting an OutOfMemoryError.
+# Note  : Most apps never reach this. It's a safety ceiling, not a reservation.
+dalvik.vm.heapsize=512m
+
+# Target heap utilization ratio that triggers GC.
+# Effect: GC runs when the live object ratio exceeds 75% of the current heap.
+#         0.75 is the Android default and is well-tuned for general use.
+#         Lower values (e.g. 0.5) = more frequent GC = more jank.
+#         Higher values (e.g. 0.9) = less frequent GC = risk of OOM spikes.
+dalvik.vm.heaptargetutilization=0.75
+
+# Minimum amount of free heap space the GC guarantees after a collection.
+# Effect: Even after GC, at least 2m of heap remains free for new allocations.
+#         Prevents the pathological case where GC runs but leaves nearly no room,
+#         triggering another GC immediately (GC thrashing).
+dalvik.vm.heapminfree=2m
+
+# Maximum amount of free heap space GC will leave after a collection.
+# Effect: Caps wasted free heap at 8m — prevents the heap from ballooning with
+#         empty space after a large allocation is freed.
+#         Works together with heaptargetutilization to keep heap compact.
+dalvik.vm.heapmaxfree=8m

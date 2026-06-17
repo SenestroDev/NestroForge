@@ -53,4 +53,38 @@ chmod 755 "$MODPATH/post-fs-data.sh" 2>/dev/null || true
 chmod 755 "$MODPATH/uninstall.sh" 2>/dev/null || true
 chmod 755 "$MODPATH/action.sh" 2>/dev/null || true
 
+# ── Font replacement logic ────────────────────────
+MODULE_FONTS_DIR="$MODPATH/system/fonts"
+BACKUP_DIR="$MODPATH/backup"
+mkdir -p "$BACKUP_DIR"
+
+ui_print "- Scanning module fonts directory"
+
+if [ ! -d "$MODULE_FONTS_DIR" ]; then
+  ui_print "  ! No fonts directory found in module, skipping"
+else
+  for MODULE_FONT in "$MODULE_FONTS_DIR"/*.ttf "$MODULE_FONTS_DIR"/*.otf; do
+    # Skip glob if no files matched
+    [ -f "$MODULE_FONT" ] || continue
+
+    FONT_NAME="${MODULE_FONT##*/}"
+    SYSTEM_FONT="/system/fonts/$FONT_NAME"
+
+    ui_print "  - Checking: $FONT_NAME"
+
+    if [ -f "$SYSTEM_FONT" ]; then
+      # Exists in system — back it up and mark for restore
+      cp "$SYSTEM_FONT" "$BACKUP_DIR/$FONT_NAME"
+      touch "$BACKUP_DIR/.restore_$FONT_NAME"
+      ui_print "    ✓ Backed up existing system $FONT_NAME"
+    else
+      # Does not exist in system — mark as injected fresh
+      touch "$BACKUP_DIR/.injected_$FONT_NAME"
+      ui_print "    ! $FONT_NAME not in system, will be injected fresh"
+    fi
+  done
+
+  ui_print "- Font scan complete"
+fi
+
 ui_print "- Done!"
