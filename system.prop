@@ -24,13 +24,13 @@
 #         desktop-like setup.
 # Note  : Some apps behave differently in tablet mode. Revert to "phone" if any
 #         app breaks or shows a degraded layout.
-ro.build.characteristics=tablet
+# ro.build.characteristics=tablet
 
 # Forces the hardware pointer (cursor) to always be visible on screen.
 # Effect: Without this, Android hides the cursor when no pointing device is active.
 #         With a Bluetooth mouse connected, this ensures the cursor is always drawn.
 # Note  : Has no visible effect if no pointer/mouse device is connected.
-persist.sys.pointer.show=1
+# persist.sys.pointer.show=1
 
 
 # =============================================================================
@@ -60,7 +60,7 @@ persist.sys.pointer.show=1
 #
 # Trade-off  : Slightly longer BLE reconnection time (~100–300ms extra per
 #              reconnect) since service discovery isn't skipped.
-persist.bluetooth.gatt.enable_robust_caching=false
+# persist.bluetooth.gatt.enable_robust_caching=false
 
 # Disables Enhanced ATT (eATT) bearer negotiation.
 #
@@ -80,7 +80,7 @@ persist.bluetooth.gatt.enable_robust_caching=false
 #
 # Trade-off  : No parallel ATT channels — negligible for HID devices since
 #              mice/keyboards produce very low data throughput anyway.
-persist.bluetooth.gatt.eatt.enabled=false
+# persist.bluetooth.gatt.eatt.enabled=false
 
 
 # =============================================================================
@@ -97,7 +97,7 @@ persist.bluetooth.gatt.eatt.enabled=false
 #         causing jank. Setting to 1 locks in GPU compositing.
 # Note  : Usually already 1 on stock ROMs, but explicit declaration prevents
 #         OEM overrides from disabling it.
-debug.sf.hw=1
+# debug.sf.hw=1
 
 # Enables hardware-accelerated rendering for the entire UI framework (View system).
 # Effect: All View drawing calls (drawing lists, bitmaps, canvas ops) are
@@ -105,7 +105,7 @@ debug.sf.hw=1
 #         This is the global toggle for Android's hardware UI pipeline.
 # Note  : Should always be 1 on modern Android. Older or low-RAM OEM builds
 #         sometimes set this to 0 to conserve memory.
-persist.sys.ui.hw=1
+# persist.sys.ui.hw=1
 
 # Gives SurfaceFlinger's thread a real-time scheduling priority.
 # Effect: SF gets elevated above normal app threads in the Linux scheduler,
@@ -113,7 +113,7 @@ persist.sys.ui.hw=1
 #         CPU load — which causes visible frame drops and stuttering.
 # Note  : Particularly helpful on MediaTek SoCs where thread scheduling
 #         can be less predictable than on Snapdragon under load.
-ro.surface_flinger.use_context_priority=true
+# ro.surface_flinger.use_context_priority=true
 
 
 # =============================================================================
@@ -129,7 +129,7 @@ ro.surface_flinger.use_context_priority=true
 #         8ms (~125Hz effective) is a good balance for the G85's touch hardware.
 #         Default is often 10–16ms, which can make fast swipes feel slightly laggy.
 # Note  : Going below 8ms rarely helps and can increase CPU load from input processing.
-ro.min_pointer_dur=8
+# ro.min_pointer_dur=8
 
 # Sets the scrolling cache level used during fling/scroll animations.
 # Values : 0 = disabled, 1 = minimal, 2 = moderate, 3 = maximum
@@ -137,7 +137,7 @@ ro.min_pointer_dur=8
 #          during a scroll/fling gesture, resulting in smoother list scrolling
 #          at the cost of slightly more RAM used during the gesture.
 # Note   : Level 3 is suitable for devices with ≥3GB RAM like the Camon 19.
-persist.sys.scrollingcache=3
+# persist.sys.scrollingcache=3
 
 # Prevents the RIL (Radio Interface Layer) daemon from collapsing its power
 # state when idle.
@@ -146,7 +146,7 @@ persist.sys.scrollingcache=3
 #         Makes the first few seconds of data activity feel more responsive.
 # Trade-off: Slightly higher idle battery drain (~1–3% over 8hrs in testing
 #            on similar MediaTek devices). Disable if battery life is a priority.
-ro.ril.disable.power.collapse=1
+# ro.ril.disable.power.collapse=1
 
 
 # =============================================================================
@@ -161,14 +161,14 @@ ro.ril.disable.power.collapse=1
 #         this to "true" to reduce GPU memory pressure, which forces software
 #         rendering of graphics. Explicitly setting false prevents that.
 # Note  : Keep as false (do not avoid GPU accel) — double-negative property name.
-ro.config.avoid_gfx_accel=false
+# ro.config.avoid_gfx_accel=false
 
 # Allows the system to purge/reclaim cached drawable assets under memory pressure
 # instead of immediately killing background app processes.
 # Effect: The system recovers RAM from decoded image caches first, which means
 #         apps stay alive longer in the background — fewer cold starts.
 # Note  : Assets are re-decoded from disk on next access (fast on modern eMMC/UFS).
-persist.sys.purgeable_assets=1
+# persist.sys.purgeable_assets=1
 
 # Sets the OOM (Out-Of-Memory) adjustment score for the home/launcher app.
 # Values : Lower = higher priority = harder to kill
@@ -177,7 +177,7 @@ persist.sys.purgeable_assets=1
 #          Result: pressing the Home button is always instant — no launcher reload.
 # Note   : The launcher typically uses 80–150MB. This reserves that memory
 #          permanently. On 4GB+ devices this is a worthwhile trade.
-ro.HOME_APP_ADJ=1
+# ro.HOME_APP_ADJ=1
 
 
 # =============================================================================
@@ -195,36 +195,36 @@ ro.HOME_APP_ADJ=1
 # Effect: Larger start = fewer early GC cycles as the app initializes and
 #         loads its first screens. 8m is appropriate for most modern apps.
 # Trade-off: Each app costs slightly more RAM at launch (negligible on 4GB).
-dalvik.vm.heapstartsize=8m
+# dalvik.vm.heapstartsize=8m
 
 # Per-app heap growth limit before the system considers the app to be using
 # "too much" memory and may become a kill candidate.
 # Effect: 192m allows moderately large apps (browsers, games) to expand their
 #         heap without being flagged as memory hogs by the LMK.
 # Note  : This is a soft ceiling — apps can request more via large heap manifest flag.
-dalvik.vm.heapgrowthlimit=192m
+# dalvik.vm.heapgrowthlimit=192m
 
 # Absolute maximum heap size per app (for apps that declare largeHeap=true).
 # Effect: Games, photo editors, and browsers can allocate up to 512m of Java
 #         heap before hitting an OutOfMemoryError.
 # Note  : Most apps never reach this. It's a safety ceiling, not a reservation.
-dalvik.vm.heapsize=512m
+# dalvik.vm.heapsize=512m
 
 # Target heap utilization ratio that triggers GC.
 # Effect: GC runs when the live object ratio exceeds 75% of the current heap.
 #         0.75 is the Android default and is well-tuned for general use.
 #         Lower values (e.g. 0.5) = more frequent GC = more jank.
 #         Higher values (e.g. 0.9) = less frequent GC = risk of OOM spikes.
-dalvik.vm.heaptargetutilization=0.75
+# dalvik.vm.heaptargetutilization=0.75
 
 # Minimum amount of free heap space the GC guarantees after a collection.
 # Effect: Even after GC, at least 2m of heap remains free for new allocations.
 #         Prevents the pathological case where GC runs but leaves nearly no room,
 #         triggering another GC immediately (GC thrashing).
-dalvik.vm.heapminfree=2m
+# dalvik.vm.heapminfree=2m
 
 # Maximum amount of free heap space GC will leave after a collection.
 # Effect: Caps wasted free heap at 8m — prevents the heap from ballooning with
 #         empty space after a large allocation is freed.
 #         Works together with heaptargetutilization to keep heap compact.
-dalvik.vm.heapmaxfree=8m
+# dalvik.vm.heapmaxfree=8m

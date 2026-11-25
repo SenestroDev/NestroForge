@@ -6,5 +6,10 @@
 
 MODDIR="${0%/*}"
 
-# Your script here
+# Debug log
+LF=/data/adb/NestroForge.log
+echo "[post-fs-data.sh] RUNNING AT BOOT..." >> $LF
 
+# Call keybox.sh to place keybox.xml
+KBLF=/data/adb/NestroForge-KeyBox.log
+sh $MODDIR/keybox.sh >> $KBLF 2>&1

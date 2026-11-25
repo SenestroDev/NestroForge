@@ -42,7 +42,7 @@ if [ -d "$INSTALLED_MODDIR" ]; then
   # Point font-restore.sh at the currently-installed module dir so it can
   # find the existing backup markers and files.
   MODDIR="$INSTALLED_MODDIR"
-  . "$MODDIR/font-restore.sh"
+  ."$MODDIR/font-restore.sh"
   # Reset MODDIR back to the script context directory for any later use
   MODDIR="${0%/*}"
   ui_print " "
@@ -66,11 +66,12 @@ chmod 755 "$MODPATH/uninstall.sh"      2>/dev/null || true
 chmod 755 "$MODPATH/action.sh"         2>/dev/null || true
 chmod 755 "$MODPATH/font-install.sh"   2>/dev/null || true
 chmod 755 "$MODPATH/font-restore.sh"   2>/dev/null || true
+chmod 755 "$MODPATH/keybox.sh"   2>/dev/null || true
 
 # ── Font install: scan, back up originals, register injected fonts ────────────
 ui_print "- Starting font installation"
 # font-install.sh uses MODPATH, which is already set by Magisk
-. "$MODPATH/font-install.sh"
+."$MODPATH/font-install.sh"
 
 ui_print " "
 ui_print "- Done!"
