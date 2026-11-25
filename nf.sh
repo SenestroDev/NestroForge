@@ -1,7 +1,8 @@
 #!/system/bin/sh
 # nf - NestroForge command line tool.
 # Installed to /data/adb/NestroForge/bin/nf (and as `nf` on the system PATH).
-# Run it as root, for example from Termux:   su -c "nf status"
+# Run it as root. From Termux just type:   nf status   (the module adds a launcher),
+# or the long way:   su -c "nf status"
 
 MODDIR=/data/adb/modules/NestroForge
 
@@ -26,6 +27,7 @@ nf - NestroForge control
   nf keybox [apply|status|path]
   nf patch  [show|set YYYY-MM-DD|off]      security patch spoofing
   nf adb    [on|off|status]                local ADB (localhost only)
+  nf termux [link|unlink|status]           'nf' command inside Termux
   nf notify [on|off|sample]
   nf bootloop [status|reset]               reset re-enables a tripped module
   nf config [show|set KEY VALUE]
@@ -86,6 +88,24 @@ case "$CMD" in
       status) echo "Local ADB: $(nf_status_of adb off)" ;;
       on)  nf_config_set ENABLE_ADB_LOCAL 1; nf_load_config; nf_apply_all; echo "Local ADB: $(nf_status_of adb off)" ;;
       off) nf_config_set ENABLE_ADB_LOCAL 0; nf_load_config; nf_apply_all; echo "Local ADB: $(nf_status_of adb off)" ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+
+  termux)
+    case "${1:-status}" in
+      status) echo "Termux nf: $(nf_termux_state)" ;;
+      link)
+        nf_termux_link
+        case $? in
+          0) echo "Termux: 'nf' command is in place" ;;
+          2) echo "Termux is not installed"; exit 1 ;;
+          3) echo "Termux was never opened. Open it once, then run this again"; exit 1 ;;
+          4) echo "Termux already has a different 'nf', left untouched"; exit 1 ;;
+          *) echo "Failed (see: nf log)"; exit 1 ;;
+        esac
+        ;;
+      unlink) nf_termux_unlink; echo "Termux nf: $(nf_termux_state)" ;;
       *) usage; exit 1 ;;
     esac
     ;;

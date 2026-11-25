@@ -170,4 +170,4 @@ done
 
 cleanup
 echo ""
-echo "Tip: from Termux use  su -c \"nf help\""
+echo "Tip: from Termux just type  nf help"

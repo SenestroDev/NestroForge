@@ -82,7 +82,22 @@ ui_print "- Config: $CONFIG_FILE"
 
 # Command line tool: /data/adb/NestroForge/bin/nf (also on PATH as `nf`)
 nf_install_cli
-ui_print "- CLI installed: su -c \"nf help\"  (from Termux)"
+ui_print "- CLI installed: /data/adb/NestroForge/bin/nf"
+
+# Make `nf` work directly inside Termux (only if Termux is installed)
+if [ "$ENABLE_TERMUX_LINK" = "1" ]; then
+  nf_termux_link
+  case $? in
+    0) ui_print "- Termux: 'nf' command added (just type: nf status)" ;;
+    2) ui_print "- Termux not installed, skipping the Termux command" ;;
+    3) ui_print "! Termux is installed but was never opened. Open it once, then run:"
+       ui_print "!   su -c \"nf termux link\"   (or reboot)" ;;
+    4) ui_print "! Termux already has a different 'nf' command, left untouched" ;;
+    *) ui_print "! Could not add the Termux command (see $LOGFILE)" ;;
+  esac
+else
+  ui_print "- Termux command is off (ENABLE_TERMUX_LINK=0 in config.sh)"
+fi
 
 # A fresh install starts with a clean boot-loop counter
 rm -f "$TRIP_FILE" "$DATA_DIR/.last_notified"

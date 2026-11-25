@@ -11,6 +11,10 @@ TS_MODULE_DIR=/data/adb/modules/tricky_store
 TS_TARGET_DIR=/data/adb/tricky_store
 BOOT_COUNT_FILE="$DATA_DIR/.boot_count"
 TRIP_FILE="$DATA_DIR/.bootloop_tripped"
+TERMUX_DIR=/data/data/com.termux
+TERMUX_BIN="$TERMUX_DIR/files/usr/bin"
+TERMUX_LINK="$TERMUX_BIN/nf"            # the launcher the module puts in Termux
+NF_LAUNCHER_MARK="NestroForge-launcher" # identifies OUR launcher (never touch a foreign nf)
 
 mkdir -p "$DATA_DIR" 2>/dev/null
 chmod 700 "$DATA_DIR" 2>/dev/null
@@ -48,6 +52,7 @@ nf_write_default_config() {
   nf_cfg_add ADB_LOCAL_PORT 5555 "# Port for local ADB (1024-65535)."
   nf_cfg_add ENABLE_DESCRIPTION 1 "# 1 = show live status in the module description inside the Magisk app."
   nf_cfg_add SECURITY_PATCH '""' "# Spoofed security patch level for Tricky Store, as YYYY-MM-DD (empty = off).\n# Written to /data/adb/tricky_store/security_patch.txt as all=YYYY-MM-DD.\n# Example: SECURITY_PATCH=2026-11-05"
+  nf_cfg_add ENABLE_TERMUX_LINK 1 "# 1 = keep an 'nf' command in Termux so you can run: nf status  (no su -c needed).\n# Only added when Termux is installed. Removed again when the module is uninstalled."
   nf_cfg_add ENABLE_NOTIFICATIONS 1 "# 1 = post a notification after boot when the status changed or something is wrong."
   nf_cfg_add BOOTLOOP_PROTECTION 1 "# 1 = disable this module automatically after too many unfinished boots in a row."
   nf_cfg_add BOOTLOOP_MAX 2 "# Allowed unfinished boots in a row. The next one disables the module.\n# A boot counts as finished 45 s after Android reports boot completed."
@@ -61,6 +66,7 @@ nf_load_config() {
   ENABLE_ADB_LOCAL=0
   ADB_LOCAL_PORT=5555
   ENABLE_DESCRIPTION=1
+  ENABLE_TERMUX_LINK=1
   SECURITY_PATCH=""
   ENABLE_NOTIFICATIONS=1
   BOOTLOOP_PROTECTION=1
@@ -80,7 +86,7 @@ nf_load_config() {
 nf_config_set() {
   case "$1" in
     ENABLE_KEYBOX|KEYBOX_OVERWRITE_EXISTING|ENABLE_ADB_LOCAL|ADB_LOCAL_PORT|ENABLE_DESCRIPTION|\
-    SECURITY_PATCH|ENABLE_NOTIFICATIONS|BOOTLOOP_PROTECTION|BOOTLOOP_MAX) ;;
+    ENABLE_TERMUX_LINK|SECURITY_PATCH|ENABLE_NOTIFICATIONS|BOOTLOOP_PROTECTION|BOOTLOOP_MAX) ;;
     *) echo "unknown key: $1" >&2; return 1 ;;
   esac
   case "$2" in *[!A-Za-z0-9._:-]*) echo "value has characters that are not allowed" >&2; return 1 ;; esac
@@ -127,6 +133,91 @@ nf_install_cli() {
   mkdir -p "$DATA_DIR/bin"
   cmp -s "$MODDIR/nf.sh" "$DATA_DIR/bin/nf" 2>/dev/null || cp -f "$MODDIR/nf.sh" "$DATA_DIR/bin/nf"
   chmod 755 "$DATA_DIR/bin/nf"
+}
+
+# ── Termux integration ───────────────────────────────────────────────────────
+# /data/adb is root-only, so a plain symlink from Termux to the real nf would end in
+# "Permission denied" for Termux's (non-root) user. Instead a tiny launcher script is
+# placed in Termux's bin folder: it runs the real nf through su, so `nf status` just works.
+
+# nf_termux_state - prints: absent | not-initialised | unlinked | linked | foreign
+#   absent          Termux is not installed
+#   not-initialised Termux is installed but was never opened (no usr/bin yet)
+#   unlinked        Termux is ready, no nf there
+#   linked          our launcher is in place
+#   foreign         an "nf" that is NOT ours is already there (never touched)
+nf_termux_state() {
+  if [ ! -d "$TERMUX_DIR" ]; then
+    echo absent
+  elif [ ! -d "$TERMUX_BIN" ]; then
+    echo not-initialised
+  elif [ ! -e "$TERMUX_LINK" ] && [ ! -L "$TERMUX_LINK" ]; then
+    echo unlinked
+  elif grep -q "$NF_LAUNCHER_MARK" "$TERMUX_LINK" 2>/dev/null; then
+    echo linked
+  else
+    echo foreign
+  fi
+}
+
+# nf_termux_link - create/refresh the launcher. Return codes:
+#   0 = launcher in place   2 = Termux not installed   3 = Termux never opened
+#   4 = a foreign nf is in the way (left alone)   1 = error
+nf_termux_link() {
+  case "$(nf_termux_state)" in
+    absent)          return 2 ;;
+    not-initialised) return 3 ;;
+    foreign)         nf_log termux "a different 'nf' exists in Termux, left alone"; return 4 ;;
+  esac
+
+  _OWNER="$(stat -c '%u:%g' "$TERMUX_DIR/files" 2>/dev/null)"
+  [ -n "$_OWNER" ] || { nf_log termux "cannot read Termux owner"; return 1; }
+
+  _TMP="$TERMUX_BIN/.nf-launcher.$$"
+  cat > "$_TMP" <<'NFLAUNCHER'
+#!/data/data/com.termux/files/usr/bin/sh
+# NestroForge-launcher
+# Put here by the NestroForge Magisk module and removed when the module is uninstalled.
+# Runs the root-only nf tool through su, so `nf status` works without typing su -c.
+NF=/data/adb/NestroForge/bin/nf
+# Termux's library paths can break the su binary
+unset LD_PRELOAD LD_LIBRARY_PATH
+if [ "$(id -u)" = "0" ]; then
+  exec "$NF" "$@"
+fi
+CMD="$NF"
+for a in "$@"; do
+  q=$(printf '%s' "$a" | sed "s/'/'\\\\''/g")
+  CMD="$CMD '$q'"
+done
+exec su -c "$CMD"
+NFLAUNCHER
+
+  # Already identical? Then there is nothing to do (no rewrite on every boot).
+  if [ -f "$TERMUX_LINK" ] && cmp -s "$_TMP" "$TERMUX_LINK"; then
+    rm -f "$_TMP"
+    return 0
+  fi
+
+  # Same owner and SELinux label as Termux's own files, otherwise Termux cannot run it
+  _CTX="$(stat -c %C "$TERMUX_BIN" 2>/dev/null)"
+  if chown "$_OWNER" "$_TMP" && chmod 755 "$_TMP"; then
+    [ -n "$_CTX" ] && [ "$_CTX" != "?" ] && chcon "$_CTX" "$_TMP" 2>/dev/null
+    if mv -f "$_TMP" "$TERMUX_LINK"; then
+      nf_log termux "launcher installed at $TERMUX_LINK"
+      return 0
+    fi
+  fi
+  rm -f "$_TMP"
+  nf_log termux "failed to install the launcher"
+  return 1
+}
+
+# nf_termux_unlink - remove the launcher, but only if it is ours
+nf_termux_unlink() {
+  [ "$(nf_termux_state)" = "linked" ] || return 0
+  rm -f "$TERMUX_LINK" && nf_log termux "launcher removed from $TERMUX_LINK"
+  return 0
 }
 
 nf_quote() {
@@ -263,6 +354,11 @@ nf_apply_all() {
   else
     adb_set_status off
   fi
+  if [ "$ENABLE_TERMUX_LINK" = "1" ]; then
+    nf_termux_link
+  else
+    nf_termux_unlink
+  fi
   nf_refresh_description
 }
 
@@ -273,6 +369,7 @@ nf_print_status() {
   echo "Keybox        : $(nf_status_of keybox unknown)"
   echo "Security patch: $(nf_status_of patch off)"
   echo "Local ADB     : $(nf_status_of adb off)"
+  echo "Termux nf     : $(nf_termux_state)"
   [ "$ENABLE_NOTIFICATIONS" = "1" ] && _NT=on || _NT=off
   echo "Notifications : $_NT"
   if [ "$BOOTLOOP_PROTECTION" = "1" ]; then
