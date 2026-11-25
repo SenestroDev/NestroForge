@@ -1,3 +1,0 @@
-# NestroForge
-
-A Magisk Module

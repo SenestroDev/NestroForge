@@ -1,7 +1,14 @@
 #!/system/bin/sh
-# uninstall.sh - runs when Magisk removes this module
-# MODDIR is provided by Magisk and points to the installed module directory.
+# uninstall.sh - runs when Magisk removes this module (early in the next boot)
+# The module folder is still there, so ${0%/*} points at it.
 
-# ── Font restore via shared helper ───────────────────────────────────────────
-# font-restore.sh expects MODDIR to be set, which Magisk already provides.
-. "$MODDIR/font-restore.sh"
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
+. "$MODDIR/adb-local.sh"
+
+# Drop the local ADB only if this module enabled it
+adb_local_disable
+
+# Your own files in /data/adb/NestroForge (config.sh, keybox.xml, backups, log) are
+# left in place on purpose. Delete that folder by hand for a full cleanup.
+# The keybox already copied into Tricky Store is also left alone.

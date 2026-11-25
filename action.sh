@@ -1,7 +1,83 @@
 #!/system/bin/sh
-# action.sh - runs when user taps the Action button in the Magisk app
+# action.sh - runs when the user taps the Action button in the Magisk app (Magisk 27+)
+#
+# Small menu driven with the volume keys:
+#   Volume UP   = move to the next entry
+#   Volume DOWN = run the highlighted entry
+# Entries: Status / Last log lines / Re-apply everything / Exit
+# If the keys cannot be read (or nothing is pressed for 30 s at the start), the
+# status is simply printed once.
 
 MODDIR="${0%/*}"
+. "$MODDIR/common.sh"
 
-# Your action here
+# read_key <seconds> - prints UP, DOWN, TIMEOUT or NOKEY
+read_key() {
+  command -v getevent >/dev/null 2>&1 || { echo NOKEY; return; }
+  _END=$(( $(date +%s) + $1 ))
+  while [ "$(date +%s)" -lt "$_END" ]; do
+    # One input event per round; touch events are ignored, only volume key presses count
+    if command -v timeout >/dev/null 2>&1; then
+      _EV="$(timeout 5 getevent -lqc 1 2>/dev/null)"
+    else
+      _EV="$(getevent -lqc 1 2>/dev/null)"
+    fi
+    case "$_EV" in
+      *KEY_VOLUMEUP*DOWN*)   echo UP;   return ;;
+      *KEY_VOLUMEDOWN*DOWN*) echo DOWN; return ;;
+    esac
+  done
+  echo TIMEOUT
+}
 
+opt_name() {
+  case "$1" in
+    0) echo "Status" ;;
+    1) echo "Last log lines" ;;
+    2) echo "Re-apply everything" ;;
+    3) echo "Exit" ;;
+  esac
+}
+
+draw_menu() {
+  echo ""
+  echo "Vol UP = next   |   Vol DOWN = select"
+  for _I in 0 1 2 3; do
+    if [ "$_I" = "$SEL" ]; then echo "  > $(opt_name $_I)"; else echo "    $(opt_name $_I)"; fi
+  done
+}
+
+run_option() {
+  echo ""
+  case "$1" in
+    0) nf_print_status ;;
+    1) nf_show_log 15 ;;
+    2) echo "Re-applying keybox, security patch, local ADB and description..."
+       nf_apply_all
+       nf_notify_changes
+       echo "Done."
+       nf_print_status ;;
+  esac
+}
+
+SEL=0
+USED=0
+while true; do
+  draw_menu
+  KEY="$(read_key 30)"
+  case "$KEY" in
+    UP)   SEL=$(( (SEL + 1) % 4 )) ;;
+    DOWN) [ "$SEL" = "3" ] && break
+          run_option "$SEL"
+          USED=1 ;;
+    NOKEY|TIMEOUT)
+          if [ "$USED" = "0" ]; then
+            echo ""
+            echo "(no key press detected - showing status)"
+            run_option 0
+          fi
+          break ;;
+  esac
+done
+echo ""
+echo "Tip: from Termux use  su -c \"nf help\""

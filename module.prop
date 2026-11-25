@@ -1,6 +1,7 @@
 id=NestroForge
 name=NestroForge
-version=v1.0
-versionCode=1
+version=v1.4.0
+versionCode=140
 author=John Yusuf Habila
-description=https://github.com/SenestroDev/NestroForge
+description=Keybox and security patch for Tricky Store, optional loopback-only local ADB, nf command, boot-loop guard. https://github.com/SenestroDev/NestroForge
+# updateJson=https://raw.githubusercontent.com/SenestroDev/NestroForge/main/update.json

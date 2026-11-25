@@ -1,33 +1,42 @@
 #!/system/bin/sh
 # service.sh - runs in late_start service mode (NON-BLOCKING)
-# This is the recommended place for most boot scripts
-# Use: MODDIR=${0%/*} to get your module's directory
 
-MODDIR="${0%/*}"
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
 
-# Your script here
+nf_log service "started"
 
-# Wait for system to fully boot before applying settings.
-# 'settings put' requires the system settings provider to be ready,
-# which isn't guaranteed at early boot — 30s is a safe margin.
-sleep 30
+# Wait until Android has really finished booting (max ~3 min) instead of a fixed sleep
+i=0
+until [ "$(getprop sys.boot_completed)" = "1" ] || [ "$i" -ge 90 ]; do
+  sleep 2
+  i=$((i + 1))
+done
+BOOT_OK=1
+if [ "$i" -ge 90 ]; then
+  BOOT_OK=0
+  nf_log service "boot_completed not seen after 3 min, continuing anyway"
+fi
 
-# Disable Android 13's GATT robust caching.
-# Robust caching was introduced in Android 12/13 and causes Android to
-# reject BLE devices whose GATT service cache doesn't match expectations.
-# This breaks BT5.x mice and other HID devices with non-standard GAP
-# implementations, causing them to disconnect after ~5-30 seconds.
-# settings put global bluetooth_gatt_robust_caching_enabled 0
+# Boot-loop protection tripped during this boot: stay out of the way and say so
+if [ -f "$TRIP_FILE" ] && [ -f "$MODDIR/disable" ]; then
+  nf_log service "module disabled by boot-loop protection, skipping everything"
+  nf_notify "NestroForge disabled" "Too many unfinished boots in a row, so the module turned itself off. Re-enable it in Magisk, or run: su -c nf bootloop reset" bootloop
+  exit 0
+fi
 
-# Disable GATT robust caching via persist prop (belt-and-suspenders).
-# The 'settings put' above covers the runtime value; this persist prop
-# ensures the BT stack itself also respects the disabled state across
-# bluetooth restarts without requiring a full reboot.
-# setprop persist.bluetooth.gatt.enable_robust_caching false
+# Keep the CLI current, then apply keybox + security patch + local ADB + description.
+# (keybox/patch are idempotent, so this is also a safety net for post-fs-data.)
+nf_install_cli
+nf_apply_all
 
-# Disable Enhanced ATT (eATT) bearer negotiation.
-# Android 13 enables eATT by default for BT5.x devices, pushing an
-# enhanced GATT channel during connection setup. BLE mice that advertise
-# BT5.2 but don't fully implement eATT get stuck in negotiation and drop.
-# Disabling forces the classic ATT bearer, which all HID devices support.
-# setprop persist.bluetooth.gatt.eatt.enabled false
+# Notify only when the state changed or something needs attention
+nf_notify_changes
+
+nf_log service "done"
+
+# The boot only counts as finished once the system stayed up for a while
+if [ "$BOOT_OK" = "1" ]; then
+  sleep 45
+  nf_bootloop_ok
+fi

@@ -1,15 +1,23 @@
 #!/system/bin/sh
-# post-fs-data.sh - runs in post-fs-data mode (BLOCKING)
-# WARNING: Boot is paused until this finishes or 40 seconds pass
-# WARNING: Use resetprop -n instead of setprop to avoid deadlock
-# Only use this if absolutely necessary
+# post-fs-data.sh - runs in post-fs-data mode (BLOCKING: boot waits for it, max 40 s)
+# Keep it tiny: boot-loop check, then the two quick file copies (keybox, security
+# patch) so they exist before the Tricky Store daemon starts.
+# Everything else lives in service.sh.
 
-MODDIR="${0%/*}"
+# MODPATH only exists while installing, so at boot it is empty.
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
 
-# Debug log
-LF=/data/adb/NestroForge.log
-echo "[post-fs-data.sh] RUNNING AT BOOT..." >> $LF
+nf_log post-fs-data "running"
 
-# Call keybox.sh to place keybox.xml
-KBLF=/data/adb/NestroForge-KeyBox.log
-sh $MODDIR/keybox.sh >> $KBLF 2>&1
+# Boot-loop protection: after too many unfinished boots the module disables itself
+if ! nf_bootloop_check; then
+  nf_log post-fs-data "boot-loop protection is active, doing nothing this boot"
+  exit 0
+fi
+
+nf_install_cli
+
+# Run with sh instead of sourcing: these scripts use exit.
+[ "$ENABLE_KEYBOX" = "1" ] && sh "$MODDIR/keybox.sh"
+sh "$MODDIR/patch.sh"

@@ -1,0 +1,8 @@
+#!/system/bin/sh
+# Systemless wrapper so `su -c nf ...` works from any terminal (e.g. Termux).
+# The real tool lives in /data/adb/NestroForge/bin/nf and is refreshed at every boot.
+if [ -f /data/adb/NestroForge/bin/nf ]; then
+  exec sh /data/adb/NestroForge/bin/nf "$@"
+fi
+echo "NestroForge CLI not installed yet - reboot once after installing the module"
+exit 1
