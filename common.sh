@@ -129,17 +129,32 @@ nf_install_cli() {
   chmod 755 "$DATA_DIR/bin/nf"
 }
 
+nf_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 # ── Notifications ────────────────────────────────────────────────────────────
 # nf_notify <title> <text> [tag] - posts through `cmd notification` (as the shell
 # package). Runs in the background with a timeout so it can never stall a script.
 nf_notify() {
   [ "$ENABLE_NOTIFICATIONS" = "1" ] || return 0
   command -v cmd >/dev/null 2>&1 || return 0
+  
+  _title=$(nf_quote "$1")
+  _body=$(nf_quote "$2")
+  _tag=$(nf_quote "${3:-nestroforge}")
+  notif="cmd notification post -S bigtext -t $_title $_tag $_body"
+  
   (
-    if command -v timeout >/dev/null 2>&1; then
-      timeout 15 cmd notification post -S bigtext -t "$1" "${3:-nestroforge}" "$2"
+    if [ "$(id -u)" = "2000" ]; then
+      set -- sh -c "$notif"
     else
-      cmd notification post -S bigtext -t "$1" "${3:-nestroforge}" "$2"
+      set -- su 2000 -c "$notif"
+    fi
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 15 "$@"
+    else
+      "$@"
     fi
   ) >/dev/null 2>&1 &
 }

@@ -12,20 +12,24 @@ MODDIR="${0%/*}"
 . "$MODDIR/common.sh"
 
 # read_key <seconds> - prints UP, DOWN, TIMEOUT or NOKEY
+# Uses the chooseport method (chainfire / ianmacd): getevent runs for 1 second per
+# round, grep stops at the first volume key DOWN event. Touch events are ignored.
 read_key() {
-  command -v getevent >/dev/null 2>&1 || { echo NOKEY; return; }
-  _END=$(( $(date +%s) + $1 ))
-  while [ "$(date +%s)" -lt "$_END" ]; do
-    # One input event per round; touch events are ignored, only volume key presses count
-    if command -v timeout >/dev/null 2>&1; then
-      _EV="$(timeout 5 getevent -lqc 1 2>/dev/null)"
-    else
-      _EV="$(getevent -lqc 1 2>/dev/null)"
-    fi
-    case "$_EV" in
-      *KEY_VOLUMEUP*DOWN*)   echo UP;   return ;;
-      *KEY_VOLUMEDOWN*DOWN*) echo DOWN; return ;;
+  _GE=/system/bin/getevent
+  [ -x "$_GE" ] || _GE="$(command -v getevent 2>/dev/null)"
+  [ -n "$_GE" ] || { echo NOKEY; return; }
+  command -v timeout >/dev/null 2>&1 || { echo NOKEY; return; }
+
+  _PATTERN="KEY_VOLUMEUP.*DOWN|KEY_VOLUMEDOWN.*DOWN"
+  _NOW=$(date +%s)
+  _END=$((_NOW + $1))
+  while [ "$_NOW" -lt "$_END" ]; do
+    _LINE=$(timeout -s 2 1 "$_GE" -lq 2>/dev/null | grep -m 1 -E "$_PATTERN")
+    case "$_LINE" in
+      *KEY_VOLUMEUP*DOWN*)   sleep 0.2; echo UP;   return ;;
+      *KEY_VOLUMEDOWN*DOWN*) sleep 0.2; echo DOWN; return ;;
     esac
+    _NOW=$(date +%s)
   done
   echo TIMEOUT
 }

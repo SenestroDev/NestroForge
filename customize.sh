@@ -88,9 +88,6 @@ ui_print "- CLI installed: su -c \"nf help\"  (from Termux)"
 rm -f "$TRIP_FILE" "$DATA_DIR/.last_notified"
 echo 0 > "$BOOT_COUNT_FILE"
 
-# Old versions logged straight into /data/adb; the log now lives in the data folder
-rm -f /data/adb/NestroForge.log /data/adb/NestroForge-KeyBox.log
-
 if [ -f "$DATA_DIR/keybox.xml" ]; then
   ui_print "- Using your keybox: $DATA_DIR/keybox.xml"
 elif [ -f "$MODPATH/keybox.xml" ]; then

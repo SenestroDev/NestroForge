@@ -26,7 +26,7 @@ nf - NestroForge control
   nf keybox [apply|status|path]
   nf patch  [show|set YYYY-MM-DD|off]      security patch spoofing
   nf adb    [on|off|status]                local ADB (localhost only)
-  nf notify [on|off|test]
+  nf notify [on|off|sample]
   nf bootloop [status|reset]               reset re-enables a tripped module
   nf config [show|set KEY VALUE]
 USAGE
@@ -91,13 +91,13 @@ case "$CMD" in
     ;;
 
   notify)
-    case "${1:-test}" in
+    case "${1:-sample}" in
       on)  nf_config_set ENABLE_NOTIFICATIONS 1; echo "Notifications: on" ;;
       off) nf_config_set ENABLE_NOTIFICATIONS 0; echo "Notifications: off" ;;
-      test)
+      sample)
         if [ "$ENABLE_NOTIFICATIONS" = "1" ]; then
-          nf_notify "NestroForge" "Test notification - it works." test
-          echo "Test notification sent"
+          nf_notify "NestroForge" "Sample notification - it works." sample
+          echo "Sample notification sent"
         else
           echo "Notifications are off (nf notify on)"
         fi
