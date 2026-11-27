@@ -112,12 +112,23 @@ adb_local_enable() {
 
   # Already enabled by us during this boot (e.g. Action button pressed again)
   if [ -f "$ADB_LOCAL_MARKER" ] && [ -n "$EXISTING" ] && [ "$EXISTING" = "$(cat "$ADB_LOCAL_MARKER" 2>/dev/null)" ]; then
-    if adb_local_firewall_on "$EXISTING"; then
-      adb_set_status "loopback:$EXISTING"
-      return 0
+    if [ "$EXISTING" != "$ADB_LOCAL_PORT" ]; then
+      # The port in config.sh changed: close the old one, then open the new one below
+      adb_log "port changed ($EXISTING -> $ADB_LOCAL_PORT), reopening"
+      adb_local_disable
+      EXISTING=""
+    else
+      if adb_local_firewall_on "$EXISTING"; then
+        adb_set_status "loopback:$EXISTING"
+        return 0
+      fi
+      # The firewall could not be restored while adbd still listens on all
+      # interfaces: close ADB over TCP instead of leaving it exposed.
+      adb_log "firewall could not be re-applied, closing ADB over TCP"
+      adb_local_disable
+      adb_set_status "blocked"
+      return 1
     fi
-    adb_set_status "blocked"
-    return 1
   fi
 
   if [ -n "$EXISTING" ] || adb_port_listening "$ADB_LOCAL_PORT"; then
@@ -137,7 +148,7 @@ adb_local_enable() {
 
   adb_log "Enabling ADB over TCP on port $ADB_LOCAL_PORT (loopback only, IPv4+IPv6 firewalled)"
   # service.* is not persistent; service.sh sets it again on every boot
-  resetprop service.adb.tcp.port "$ADB_LOCAL_PORT"
+  nf_setprop service.adb.tcp.port "$ADB_LOCAL_PORT"
   echo "$ADB_LOCAL_PORT" > "$ADB_LOCAL_MARKER"
   adb_restart_adbd
   adb_set_status "loopback:$ADB_LOCAL_PORT"
@@ -158,7 +169,7 @@ adb_local_disable() {
   # After a reboot the property is already gone (the marker is stale): then there is
   # nothing to restart, so the USB session is not dropped for no reason.
   if [ -n "$(getprop service.adb.tcp.port)" ]; then
-    resetprop --delete service.adb.tcp.port 2>/dev/null || resetprop service.adb.tcp.port 0
+    nf_delprop service.adb.tcp.port
     rm -f "$ADB_LOCAL_MARKER"
     adb_restart_adbd
   else
@@ -166,4 +177,59 @@ adb_local_disable() {
   fi
   # Close the firewall hole last, after adbd has stopped listening
   adb_local_firewall_off "$OPENED_PORT"
+}
+
+# ── Firewall watchdog ────────────────────────────────────────────────────────
+# The rules live only in kernel memory. A background loop re-checks them while local
+# ADB is on, puts them back if something removed them, and closes ADB again if that
+# fails. It stops by itself as soon as the marker file is gone (ADB turned off).
+ADB_WD_PID_FILE="$DATA_DIR/.adb_watchdog.pid"
+ADB_WD_INTERVAL=60
+
+# adb_fw_present <port> - 0 if the DROP rule exists for IPv4 (and IPv6 when ip6tables exists)
+adb_fw_present() {
+  command -v iptables >/dev/null 2>&1 || return 1
+  iptables -w -C INPUT -p tcp --dport "$1" ! -i lo -j DROP 2>/dev/null || return 1
+  if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -w -C INPUT -p tcp --dport "$1" ! -i lo -j DROP 2>/dev/null || return 1
+  fi
+  return 0
+}
+
+# One check. Returns 1 when the watchdog should stop.
+adb_watchdog_tick() {
+  [ -f "$ADB_LOCAL_MARKER" ] || return 1
+  _WP="$(cat "$ADB_LOCAL_MARKER" 2>/dev/null)"
+  [ -n "$_WP" ] || return 1
+  adb_fw_present "$_WP" && return 0
+  adb_log "watchdog: firewall rule for port $_WP is missing, restoring it"
+  if adb_local_firewall_on "$_WP"; then
+    adb_log "watchdog: rule restored"
+    return 0
+  fi
+  adb_log "watchdog: could not restore the firewall, closing ADB over TCP"
+  adb_local_disable
+  adb_set_status "blocked"
+  nf_notify "NestroForge: local ADB closed" "The firewall rule for port $_WP disappeared and could not be restored, so ADB over TCP was turned off." adbwatch
+  nf_refresh_description
+  return 1
+}
+
+# Start the loop unless it is already running (pid file is cleared on boot by service.sh)
+adb_watchdog_start() {
+  [ "$ADB_WATCHDOG" = "1" ] || return 0
+  [ -f "$ADB_LOCAL_MARKER" ] || return 0
+  _OLD="$(cat "$ADB_WD_PID_FILE" 2>/dev/null)"
+  if [ -n "$_OLD" ] && kill -0 "$_OLD" 2>/dev/null; then
+    return 0
+  fi
+  (
+    trap '' HUP
+    while sleep "$ADB_WD_INTERVAL"; do
+      adb_watchdog_tick || break
+    done
+    rm -f "$ADB_WD_PID_FILE"
+  ) >/dev/null 2>&1 </dev/null &
+  echo $! > "$ADB_WD_PID_FILE"
+  adb_log "watchdog started (every ${ADB_WD_INTERVAL}s)"
 }

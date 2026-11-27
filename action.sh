@@ -1,10 +1,10 @@
 #!/system/bin/sh
-# action.sh - runs when the user taps the Action button in the Magisk app (Magisk 27+)
+# action.sh - runs when the user taps the Action button in the root manager app
+# (Magisk 27+, recent KernelSU and APatch)
 #
 # Small menu driven with the volume keys:
 #   Volume DOWN = move the arrow to the next entry
 #   Volume UP   = select (run) the highlighted entry
-# Entries: Status / Last log lines / Re-apply everything / Exit
 # If the keys cannot be read (or nothing is pressed for 30 s at the start), the
 # status is simply printed once.
 #
@@ -13,10 +13,12 @@
 
 MODDIR="${0%/*}"
 . "$MODDIR/common.sh"
+. "$MODDIR/doctor.sh"
 
 VOLPID=""
 LOCK=""
 STREAMS="3 2"        # 3 = media, 2 = ring. Add 5 (notification) / 0 (call) if needed
+VOL_POLL=0.3         # seconds between checks; every check starts a `cmd` process, keep it >= 0.2
 TTY=0
 [ -t 1 ] && TTY=1
 
@@ -52,7 +54,7 @@ lock_volume() {
         _C="$(vol_get "$_S")"
         [ -n "$_C" ] && [ "$_C" != "$_T" ] && vol_set "$_S" "$_T"
       done
-      sleep 0.1
+      sleep "$VOL_POLL"
     done
   ) >/dev/null 2>&1 &
   VOLPID=$!
@@ -94,21 +96,30 @@ read_key() {
 # ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
+NITEMS=8
+EXIT_ITEM=7
+
 opt_name() {
   case "$1" in
     0) echo "Status" ;;
     1) echo "Last log lines" ;;
     2) echo "Re-apply everything" ;;
-    3) echo "Exit" ;;
+    3) echo "Run doctor (check setup)" ;;
+    4) if [ "$ENABLE_ADB_LOCAL" = "1" ]; then echo "Turn local ADB off"; else echo "Turn local ADB on"; fi ;;
+    5) echo "Reset boot guard" ;;
+    6) echo "Send sample notification" ;;
+    7) echo "Exit" ;;
   esac
 }
 
 print_items() {
   [ "$TTY" = "1" ] && printf '\r\033[2K'
   echo "Vol DOWN = move   |   Vol UP = select"
-  for _I in 0 1 2 3; do
+  _I=0
+  while [ "$_I" -lt "$NITEMS" ]; do
     [ "$TTY" = "1" ] && printf '\r\033[2K'
     if [ "$_I" = "$SEL" ]; then echo "  > $(opt_name $_I)"; else echo "    $(opt_name $_I)"; fi
+    _I=$((_I + 1))
   done
 }
 
@@ -117,11 +128,11 @@ draw_menu() {
   print_items
 }
 
-# Real terminal: the arrow moves in place. Magisk app output view cannot move the
+# Real terminal: the arrow moves in place. The root manager's output view cannot move the
 # cursor, so there only the newly highlighted entry is printed (one line).
 move_arrow() {
   if [ "$TTY" = "1" ]; then
-    printf '\033[5A'
+    printf '\033[%dA' $((NITEMS + 1))
     print_items
   else
     echo "  > $(opt_name "$SEL")"
@@ -138,6 +149,22 @@ run_option() {
        nf_notify_changes
        echo "Done."
        nf_print_status ;;
+    3) nf_doctor ;;
+    4) if [ "$ENABLE_ADB_LOCAL" = "1" ]; then _N=0; else _N=1; fi
+       echo "Switching local ADB $([ "$_N" = "1" ] && echo on || echo off) (this restarts adbd and drops open ADB sessions)..."
+       nf_config_set ENABLE_ADB_LOCAL "$_N"
+       nf_load_config
+       nf_apply_all
+       nf_notify_changes
+       echo "Local ADB: $(nf_status_of adb off)" ;;
+    5) nf_bootloop_reset
+       echo "Boot guard reset. The module runs again on the next boot." ;;
+    6) if [ "$ENABLE_NOTIFICATIONS" = "1" ]; then
+         nf_notify "NestroForge" "Sample notification from the Action menu - it works." sample
+         echo "Sample notification sent."
+       else
+         echo "Notifications are off (nf notify on)."
+       fi ;;
   esac
 }
 
@@ -153,9 +180,9 @@ draw_menu
 while true; do
   read_key 30
   case "$KEY" in
-    DOWN) SEL=$(( (SEL + 1) % 4 ))
+    DOWN) SEL=$(( (SEL + 1) % NITEMS ))
           move_arrow ;;
-    UP)   [ "$SEL" = "3" ] && break
+    UP)   [ "$SEL" = "$EXIT_ITEM" ] && break
           run_option "$SEL"
           USED=1
           draw_menu ;;

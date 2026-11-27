@@ -2,7 +2,7 @@
 # patch.sh - security patch spoofing for Tricky Store.
 # Run with `sh` by post-fs-data.sh, nf and nf_apply_all.
 #
-# config.sh: SECURITY_PATCH=2026-11-05   ->  /data/adb/tricky_store/security_patch.txt
+# config.sh: SECURITY_PATCH=2026-11-05 (or auto = device patch level)  ->  /data/adb/tricky_store/security_patch.txt
 #            containing the line  all=2026-11-05
 # Empty / off removes the file again, but only if THIS module wrote it.
 # A security_patch.txt written by someone else is backed up before it is replaced.
@@ -34,6 +34,12 @@ case "$V" in
     ;;
 esac
 
+# ── auto: follow the device's own patch level ────────────────────────────────
+if [ "$V" = "auto" ]; then
+  V="$(getprop ro.build.version.security_patch)"
+  [ -n "$V" ] || { set_status invalid "SECURITY_PATCH=auto but ro.build.version.security_patch is empty"; exit 1; }
+fi
+
 # ── Validate YYYY-MM-DD ──────────────────────────────────────────────────────
 case "$V" in
   [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
@@ -43,6 +49,9 @@ MM="${V#*-}"; MM="${MM%-*}"
 DD="${V##*-}"
 case "$MM" in 0[1-9]|1[0-2]) ;; *) set_status invalid "bad month in '$V'"; exit 1 ;; esac
 case "$DD" in 0[1-9]|[12][0-9]|3[01]) ;; *) set_status invalid "bad day in '$V'"; exit 1 ;; esac
+case "$MM" in 02) _MAXD=29 ;; 04|06|09|11) _MAXD=30 ;; *) _MAXD=31 ;; esac
+_D="${DD#0}"
+[ "$_D" -le "$_MAXD" ] || { set_status invalid "day $DD does not exist in month $MM ('$V')"; exit 1; }
 
 # ── Write ────────────────────────────────────────────────────────────────────
 mkdir -p "$TS_TARGET_DIR"

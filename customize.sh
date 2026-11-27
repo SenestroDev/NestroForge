@@ -14,11 +14,11 @@ MODDIR="$MODPATH"
 
 # ── Enforce install from Magisk app only ────────────────────────────────────
 if $BOOTMODE; then
-  ui_print "- Installing from Magisk app"
+  ui_print "- Installing from the root manager app"
 else
   ui_print "*********************************************************"
   ui_print "! Install from recovery is NOT supported"
-  ui_print "! Please install from Magisk app"
+  ui_print "! Please install from the root manager app (Magisk, KernelSU or APatch)"
   abort "*********************************************************"
 fi
 
@@ -41,16 +41,22 @@ ui_print "- Author: $MOD_AUTHOR"
 ui_print " "
 
 # ── Compatibility checks ─────────────────────────────────────────────────────
-# MAGISK_VER_CODE may be empty on other root managers, so every test is guarded.
-if [ -n "$MAGISK_VER_CODE" ] && [ "$MAGISK_VER_CODE" -lt 24000 ]; then
+# KernelSU and APatch pretend to be an old Magisk (MAGISK_VER_CODE is fake there), so the
+# version checks below only apply to real Magisk.
+ROOT_MGR=Magisk
+[ "$KSU" = "true" ] && ROOT_MGR=KernelSU
+[ "$APATCH" = "true" ] && ROOT_MGR=APatch
+ui_print "- Root manager: $ROOT_MGR"
+if [ "$ROOT_MGR" = "Magisk" ] && [ -n "$MAGISK_VER_CODE" ] && [ "$MAGISK_VER_CODE" -lt 24000 ]; then
   abort "! Magisk 24.0 or newer is required (found $MAGISK_VER)"
 fi
-if [ -n "$MAGISK_VER_CODE" ] && [ "$MAGISK_VER_CODE" -lt 27000 ]; then
+if [ "$ROOT_MGR" = "Magisk" ] && [ -n "$MAGISK_VER_CODE" ] && [ "$MAGISK_VER_CODE" -lt 27000 ]; then
   ui_print "! Magisk older than 27: the Action button will not be available"
 fi
 
 ui_print "- Device: $(getprop ro.product.model) ($(getprop ro.board.platform)), Android $(getprop ro.build.version.release)"
-if [ "$(getprop ro.board.platform)" != "mt6768" ]; then
+# Only relevant when this zip actually ships a system.prop
+if unzip -l "$ZIPFILE" system.prop >/dev/null 2>&1 && [ "$(getprop ro.board.platform)" != "mt6768" ]; then
   ui_print "! system.prop is written for MT6768 (Helio G85). Its tweaks are all"
   ui_print "! disabled by default - review them before enabling on this device."
 fi
@@ -71,7 +77,7 @@ fi
 
 # ── Extract module files ─────────────────────────────────────────────────────
 ui_print "- Extracting module files"
-unzip -o "$ZIPFILE" -x 'META-INF/*' '*.md' '.git*' -d "$MODPATH" >&2
+unzip -o "$ZIPFILE" -x 'META-INF/*' '*.md' '.git*' 'update.json' 'build.sh' 'dist/*' -d "$MODPATH" >&2
 
 [ -f "$MODPATH/common.sh" ] || abort "! common.sh is missing from the zip, aborting"
 
@@ -116,7 +122,7 @@ fi
 ui_print "- Setting permissions"
 set_perm_recursive "$MODPATH" root root 0755 0644
 for f in service.sh post-fs-data.sh uninstall.sh action.sh keybox.sh patch.sh nf.sh \
-         update-description.sh adb-local.sh common.sh system/bin/nf; do
+         update-description.sh adb-local.sh common.sh doctor.sh system/bin/nf; do
   [ -f "$MODPATH/$f" ] && chmod 755 "$MODPATH/$f"
 done
 # The keybox holds private keys: root-only
@@ -124,5 +130,6 @@ done
 
 ui_print "- Local ADB is OFF by default (enable it in config.sh)"
 ui_print "- Changes apply on next reboot"
+ui_print "- After rebooting, run  nf doctor  to check the whole setup"
 ui_print " "
 ui_print "- Done!"

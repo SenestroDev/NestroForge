@@ -50,8 +50,9 @@ nf_write_default_config() {
   nf_cfg_add KEYBOX_OVERWRITE_EXISTING 0 "# Your keybox goes at /data/adb/NestroForge/keybox.xml and is always applied.\n# A bundled keybox will NOT replace a Tricky Store keybox this module did not\n# write, unless this is 1 (the old one is then backed up to .../backup/)."
   nf_cfg_add ENABLE_ADB_LOCAL 0 "# 1 = let adbd listen on localhost only (Termux: adb connect localhost:5555).\n# OFF by default. Needs the IPv4 AND IPv6 firewall rules, otherwise it stays closed."
   nf_cfg_add ADB_LOCAL_PORT 5555 "# Port for local ADB (1024-65535)."
+  nf_cfg_add ADB_WATCHDOG 1 "# 1 = while local ADB is on, re-check its firewall rule every 60 s, restore it,\n# and close ADB again if it cannot be restored."
   nf_cfg_add ENABLE_DESCRIPTION 1 "# 1 = show live status in the module description inside the Magisk app."
-  nf_cfg_add SECURITY_PATCH '""' "# Spoofed security patch level for Tricky Store, as YYYY-MM-DD (empty = off).\n# Written to /data/adb/tricky_store/security_patch.txt as all=YYYY-MM-DD.\n# Example: SECURITY_PATCH=2026-11-05"
+  nf_cfg_add SECURITY_PATCH '""' "# Spoofed security patch level for Tricky Store, as YYYY-MM-DD, or auto = the device's own\n# patch level (empty = off).\n# Written to /data/adb/tricky_store/security_patch.txt as all=YYYY-MM-DD.\n# Example: SECURITY_PATCH=2026-11-05"
   nf_cfg_add ENABLE_TERMUX_LINK 1 "# 1 = keep an 'nf' command in Termux so you can run: nf status  (no su -c needed).\n# Only added when Termux is installed. Removed again when the module is uninstalled."
   nf_cfg_add ENABLE_NOTIFICATIONS 1 "# 1 = post a notification after boot when the status changed or something is wrong."
   nf_cfg_add BOOTLOOP_PROTECTION 1 "# 1 = disable this module automatically after too many unfinished boots in a row."
@@ -65,6 +66,7 @@ nf_load_config() {
   KEYBOX_OVERWRITE_EXISTING=0
   ENABLE_ADB_LOCAL=0
   ADB_LOCAL_PORT=5555
+  ADB_WATCHDOG=1
   ENABLE_DESCRIPTION=1
   ENABLE_TERMUX_LINK=1
   SECURITY_PATCH=""
@@ -81,15 +83,67 @@ nf_load_config() {
   case "$BOOTLOOP_MAX" in ''|*[!0-9]*) BOOTLOOP_MAX=2 ;; esac
 }
 
+# nf_cfg_valid <KEY> <value> - prints the reason and returns 1 if the value is not acceptable
+nf_cfg_valid() {
+  case "$1" in
+    ENABLE_KEYBOX|KEYBOX_OVERWRITE_EXISTING|ENABLE_ADB_LOCAL|ADB_WATCHDOG|ENABLE_DESCRIPTION|\
+    ENABLE_TERMUX_LINK|ENABLE_NOTIFICATIONS|BOOTLOOP_PROTECTION)
+      case "$2" in 0|1) ;; *) echo "must be 0 or 1"; return 1 ;; esac ;;
+    ADB_LOCAL_PORT)
+      case "$2" in ''|*[!0-9]*) echo "must be a number from 1024 to 65535"; return 1 ;; esac
+      { [ "$2" -ge 1024 ] && [ "$2" -le 65535 ]; } || { echo "must be from 1024 to 65535"; return 1; } ;;
+    BOOTLOOP_MAX)
+      case "$2" in ''|*[!0-9]*) echo "must be a whole number"; return 1 ;; esac ;;
+    SECURITY_PATCH)
+      case "$2" in ''|0|off|auto|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+        *) echo "must be YYYY-MM-DD, auto, off or empty"; return 1 ;; esac ;;
+  esac
+  return 0
+}
+
+NF_CFG_KEYS="ENABLE_KEYBOX KEYBOX_OVERWRITE_EXISTING ENABLE_ADB_LOCAL ADB_LOCAL_PORT ADB_WATCHDOG ENABLE_DESCRIPTION ENABLE_TERMUX_LINK SECURITY_PATCH ENABLE_NOTIFICATIONS BOOTLOOP_PROTECTION BOOTLOOP_MAX"
+
+# nf_config_problems - reads config.sh as TEXT (nothing is executed), prints one line per
+# problem and returns 1 if there is any. Keys that are missing are fine (defaults apply).
+nf_config_problems() {
+  if [ ! -f "$CONFIG_FILE" ]; then echo "config.sh is missing"; return 1; fi
+  if ! sh -n "$CONFIG_FILE" 2>/dev/null; then
+    echo "config.sh has a syntax error (defaults are in use until it is fixed)"
+    return 1
+  fi
+  _PB=0
+  for _K in $NF_CFG_KEYS; do
+    _L="$(grep "^$_K=" "$CONFIG_FILE" 2>/dev/null | tail -n 1 | tr -d '\r')"
+    [ -n "$_L" ] || continue
+    _VAL="${_L#*=}"; _VAL="${_VAL#\"}"; _VAL="${_VAL%\"}"
+    _R="$(nf_cfg_valid "$_K" "$_VAL")" || { echo "$_K=$_VAL : $_R"; _PB=$((_PB + 1)); }
+  done
+  [ "$_PB" -eq 0 ]
+}
+
+# Property helpers: resetprop exists on Magisk and APatch (and recent KernelSU),
+# setprop is the fallback.
+nf_setprop() {
+  if command -v resetprop >/dev/null 2>&1; then resetprop "$1" "$2"; else setprop "$1" "$2"; fi
+}
+nf_delprop() {
+  if command -v resetprop >/dev/null 2>&1; then
+    resetprop --delete "$1" 2>/dev/null || resetprop "$1" 0
+  else
+    setprop "$1" ""
+  fi
+}
+
 # nf_config_set <KEY> <value> - change one known key from the command line.
 # Only a fixed list of keys and only safe characters are accepted.
 nf_config_set() {
   case "$1" in
-    ENABLE_KEYBOX|KEYBOX_OVERWRITE_EXISTING|ENABLE_ADB_LOCAL|ADB_LOCAL_PORT|ENABLE_DESCRIPTION|\
+    ENABLE_KEYBOX|KEYBOX_OVERWRITE_EXISTING|ENABLE_ADB_LOCAL|ADB_LOCAL_PORT|ADB_WATCHDOG|ENABLE_DESCRIPTION|\
     ENABLE_TERMUX_LINK|SECURITY_PATCH|ENABLE_NOTIFICATIONS|BOOTLOOP_PROTECTION|BOOTLOOP_MAX) ;;
     *) echo "unknown key: $1" >&2; return 1 ;;
   esac
   case "$2" in *[!A-Za-z0-9._:-]*) echo "value has characters that are not allowed" >&2; return 1 ;; esac
+  _M="$(nf_cfg_valid "$1" "$2")" || { echo "$1: $_M" >&2; return 1; }
   if grep -q "^$1=" "$CONFIG_FILE"; then
     sed -i "s|^$1=.*|$1=\"$2\"|" "$CONFIG_FILE"
   else
@@ -266,7 +320,7 @@ nf_has_problem() {
     [ "$(nf_ts_state)" = "ok" ] || return 0
   fi
   [ "$(nf_status_of adb off)" = "blocked" ] && return 0
-  [ "$(nf_status_of patch off)" = "invalid" ] && return 0
+  case "$(nf_status_of patch off)" in invalid|error) return 0 ;; esac
   return 1
 }
 
@@ -344,11 +398,14 @@ nf_bootloop_reset() {
 
 # ── Apply everything / status / log (shared by service.sh, action.sh, nf) ────
 nf_apply_all() {
-  [ "$ENABLE_KEYBOX" = "1" ] && sh "$MODDIR/keybox.sh"
+  # keybox.sh handles ENABLE_KEYBOX=0 itself (it records "disabled"), so the
+  # status never goes stale after the switch is turned off.
+  sh "$MODDIR/keybox.sh"
   sh "$MODDIR/patch.sh"
   . "$MODDIR/adb-local.sh"
   if [ "$ENABLE_ADB_LOCAL" = "1" ]; then
     adb_local_enable
+    adb_watchdog_start
   elif [ -f "$ADB_LOCAL_MARKER" ]; then
     adb_local_disable
   else

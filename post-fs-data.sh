@@ -19,5 +19,5 @@ fi
 nf_install_cli
 
 # Run with sh instead of sourcing: these scripts use exit.
-[ "$ENABLE_KEYBOX" = "1" ] && sh "$MODDIR/keybox.sh"
+sh "$MODDIR/keybox.sh"
 sh "$MODDIR/patch.sh"

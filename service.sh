@@ -27,6 +27,9 @@ fi
 
 # Keep the CLI current, then apply keybox + security patch + local ADB + description.
 # (keybox/patch are idempotent, so this is also a safety net for post-fs-data.)
+# A watchdog from the previous boot cannot be alive any more
+rm -f "$DATA_DIR/.adb_watchdog.pid"
+
 nf_install_cli
 nf_apply_all
 
